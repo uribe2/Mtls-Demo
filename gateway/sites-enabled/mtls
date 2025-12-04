@@ -1,0 +1,44 @@
+###############################
+# Public Replenishment access (no client cert)
+###############################
+server {
+    listen 443 ssl;
+    server_name gateway.local;
+
+    ssl_certificate /etc/nginx/certs/gateway.crt;
+    ssl_certificate_key /etc/nginx/certs/gateway.key;
+
+    location / {
+        proxy_pass http://172.31.78.143:8001/;   # Replenishment EC2 private IP
+        proxy_set_header Host $host;
+    }
+}
+
+###############################
+# Internal mTLS: Replenishment -> Inventory
+###############################
+server {
+    listen 8443 ssl;
+    server_name gateway.local;
+
+    ssl_certificate /etc/nginx/certs/gateway.crt;
+    ssl_certificate_key /etc/nginx/certs/gateway.key;
+
+    # Require client cert signed by our CA
+    ssl_client_certificate /etc/nginx/certs/demo-root.crt;
+    ssl_verify_client on;
+    ssl_verify_depth 2;
+
+    location /inventory/ {
+
+        # Only allow the replenishment-service certificate
+        if ($ssl_client_s_dn !~ "CN=replenishment-service") {
+            return 403;
+        }
+
+        # Internal auth header Inventory expects
+        proxy_set_header X-Internal-Token "super-secret-token";
+
+        proxy_pass http://172.31.68.51:8000/;   # Inventory EC2 private IP
+    }
+}
